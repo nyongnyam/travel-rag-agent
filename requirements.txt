@@ -1,0 +1,10 @@
+langgraph
+langchain-huggingface
+langchain-chroma
+python-dotenv
+requests
+transformers
+accelerate
+sentence-transformers
+langchain-text-splitters
+gradio
