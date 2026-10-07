@@ -27,53 +27,60 @@ pipe = transformers.pipeline(
 llm = ChatHuggingFace(llm=HuggingFacePipeline(pipeline=pipe))
 
 
-def rag_search(query: str, category: str, k: int = 5) -> str:
+# 검색 결과 1건당 최대 글자 수 (긴 overview가 프롬프트를 불리는 것 방지)
+MAX_CHARS_PER_DOC = 200
+
+
+def rag_search(query: str, category: str, k: int = 3) -> str:
     retriever = vectorstore.as_retriever(
         search_kwargs={"k": k, "filter": {"category": category}}
     )
     results = retriever.invoke(query)
     if not results:
         return "관련 정보 없음"
-    return "\n".join(f"- {d.page_content}" for d in results)
+    lines = []
+    for d in results:
+        text = " / ".join(d.page_content.split("\n"))
+        if len(text) > MAX_CHARS_PER_DOC:
+            text = text[:MAX_CHARS_PER_DOC] + "…"
+        lines.append(f"- {text}")
+    return "\n".join(lines)
 
 
+# Worker는 카테고리별 RAG 검색만 담당하고 LLM을 호출하지 않는다.
+# CPU 환경에서 시간이 가장 많이 드는 건 토큰 생성(decode)이므로,
+# LLM 호출을 supervisor 1회로 모아 전체 응답 시간을 줄인다.
 def transport_worker(state: TravelState) -> dict:
-    info = rag_search(state["user_request"], category="관광지")
-    prompt = f"다음 정보를 바탕으로 이동/동선 관련 팁을 2~3줄로 요약해:\n{info}"
-    result = llm.invoke(prompt)
-    return {"transport_info": result.content}
+    return {"transport_info": rag_search(state["user_request"], category="관광지")}
 
 
 def stay_worker(state: TravelState) -> dict:
-    info = rag_search(state["user_request"], category="숙박")
-    prompt = f"다음 숙소 정보를 바탕으로 추천 숙소 2곳을 이유와 함께 정리해:\n{info}"
-    result = llm.invoke(prompt)
-    return {"stay_info": result.content}
+    return {"stay_info": rag_search(state["user_request"], category="숙박")}
 
 
 def food_worker(state: TravelState) -> dict:
-    info = rag_search(state["user_request"], category="음식점")
-    prompt = f"다음 음식점 정보를 바탕으로 추천 맛집 3곳을 정리해:\n{info}"
-    result = llm.invoke(prompt)
-    return {"food_info": result.content}
+    return {"food_info": rag_search(state["user_request"], category="음식점")}
 
 
 def supervisor_synthesize(state: TravelState) -> dict:
-    prompt = f"""너는 여행 일정 플래너야. 아래 정보를 종합해서 일차별(Day1, Day2...) 일정표를 만들어.
+    prompt = f"""너는 여행 일정 플래너야. 아래 검색 결과에 있는 장소만 사용해서 일차별(Day1, Day2...) 일정표를 만들어.
 
 [사용자 요청]
 {state['user_request']}
 
-[동선/교통 정보]
+[관광지 후보]
 {state['transport_info']}
 
-[숙소 정보]
+[숙소 후보]
 {state['stay_info']}
 
-[맛집 정보]
+[음식점 후보]
 {state['food_info']}
 
-일차별, 시간대별로 정리해서 답해."""
+규칙:
+- 일차별로 오전/점심/오후/저녁/숙소 순서로 정리해.
+- 목록에 없는 장소는 만들어내지 마.
+- 같은 날 방문하는 장소는 주소가 가까운 곳끼리 묶어."""
     result = llm.invoke(prompt)
     return {"final_itinerary": result.content}
 

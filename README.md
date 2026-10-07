@@ -86,10 +86,10 @@ TourAPI의 `areaBasedList2` 엔드포인트를 통해 지역 코드(`areaCode`)�
 
 | 노드 | 역할 |
 |---|---|
-| `transport_worker` | 동선/교통 관련 정보를 RAG로 검색 후 요약 |
-| `stay_worker` | 숙박 카테고리 필터링 검색 후 추천 숙소 정리 |
-| `food_worker` | 음식점 카테고리 필터링 검색 후 추천 맛집 정리 |
-| `supervisor` | 세 Worker의 결과를 종합해 일차별 최종 일정표 생성 |
+| `transport_worker` | 관광지 카테고리 RAG 검색 (LLM 호출 없음) |
+| `stay_worker` | 숙박 카테고리 RAG 검색 (LLM 호출 없음) |
+| `food_worker` | 음식점 카테고리 RAG 검색 (LLM 호출 없음) |
+| `supervisor` | 세 Worker의 검색 결과를 종합해 일차별 최종 일정표 생성 (LLM 1회 호출) |
 
 ### 4.2 상태(State) 정의
 
@@ -98,6 +98,10 @@ TourAPI의 `areaBasedList2` 엔드포인트를 통해 지역 코드(`areaCode`)�
 ### 4.3 실행 방식 및 트러블슈팅
 
 초기에는 LangGraph의 fan-out/fan-in 구조로 세 Worker를 병렬 실행하도록 설계했으나, 단일 `transformers` 모델 인스턴스를 여러 스레드에서 동시 호출할 경우 디바이스 텐서 충돌(`RuntimeError: Tensor on device cpu is not on the expected device meta`)이 발생함을 확인했다. 이는 로컬 sLLM 인스턴스가 API 기반 모델과 달리 동시 호출에 대한 안전성을 보장하지 않기 때문으로, 순차 실행 구조(`transport → stay → food → supervisor`)로 전환해 안정성을 확보했다.
+
+### 4.4 응답 속도 개선
+
+초기 구조는 각 Worker가 검색 결과를 LLM으로 요약하고 supervisor가 이를 다시 종합해, 요청 1건당 LLM을 4회 순차 호출했다. CPU 환경에서는 입력 처리(prefill)보다 토큰 생성(decode)이 대부분의 시간을 차지하므로, Worker는 검색만 수행하고 LLM 호출은 supervisor 1회로 통합했다. 또한 검색 결과를 `k=3`, 장소당 200자로 제한해 프롬프트 길이를 줄였고, 목록에 없는 장소를 만들지 않도록 supervisor 프롬프트에 제약을 추가했다.
 
 ## 5. 실행 환경
 
