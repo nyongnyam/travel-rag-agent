@@ -1,0 +1,17 @@
+# 환경변수 (API 키)
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# 실행 시 생성되는 벡터DB
+chroma_db/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -26,7 +26,7 @@
 - 형식: JSON
 - 대상 카테고리: 관광지, 음식점, 숙박
 - 주요 필드: 명칭, 주소, 개요(overview), 콘텐츠 ID, 지역 코드
-- 수집 범위: 현재는 제주 지역으로 한정 (사유는 8절 한계 참고). API 구조상 지역 코드만 추가하면 전국으로 확장 가능하도록 설계됨
+- 수집 범위: 기본값은 제주 지역 (사유는 7절 한계 참고). Docker 실행 시 `DATA_CITIES` 환경변수로 지역을 추가할 수 있으며, 검색 시 요청 문장의 지역명으로 필터링함
 
 ## 2. 시스템 아키텍처
 
@@ -110,13 +110,21 @@ TourAPI의 `areaBasedList2` 엔드포인트를 통해 지역 코드(`areaCode`)�
 ```
 travel-rag-agent/
 ├── .env                  # TOUR_API_KEY 저장 (Git 제외)
+├── .env.example          # .env 견본 (키 없이 변수 이름만)
 ├── .gitignore
+├── .dockerignore
 ├── requirements.txt
 ├── crawler.py            # TourAPI 수집 + 벡터스토어 적재
 ├── graph.py              # Supervisor-Worker LangGraph 정의
 ├── main.py               # CLI 실행 진입점
 ├── app.py                # Gradio UI 실행 진입점
-└── chroma_db/            # 벡터DB 저장 폴더 (자동 생성)
+├── encode.py             # 인코딩 서비스키 → 디코딩 키 변환 유틸
+├── Dockerfile            # CPU 전용 실행 이미지
+├── docker-compose.yml    # 컨테이너 실행 설정 (포트, 볼륨, 적재 지역)
+├── docker/
+│   ├── entrypoint.sh     # 컨테이너 시작 시 벡터DB 점검 후 앱 실행
+│   └── prepare_db.py     # 미적재 지역만 수집해 벡터DB에 추가
+└── chroma_db/            # 벡터DB 저장 폴더 (실행 시 자동 생성, Git 제외)
 ```
 
 ### 5.2 설치 및 실행
@@ -127,10 +135,21 @@ venv\Scripts\activate          # Windows
 pip install -r requirements.txt
 ```
 
-`.env` 파일에 공공데이터포털에서 발급받은 디코딩 서비스키를 입력한다.
+`.env.example`을 복사해 `.env`를 만들고, 공공데이터포털에서 발급받은 디코딩 서비스키를 입력한다.
+
+```bash
+copy .env.example .env         # Windows (macOS/Linux: cp .env.example .env)
+```
 
 ```
 TOUR_API_KEY=발급받은_디코딩_서비스키
+```
+
+`.env`는 `.gitignore`에 포함되어 있어 커밋되지 않는다. `.env.example`에는 실제 키를 넣지 않는다.
+
+**CLI 실행** (최초 실행 시 벡터DB가 없으면 제주 데이터를 수집·적재)
+```bash
+python main.py
 ```
 
 **웹 UI 실행**
@@ -138,18 +157,15 @@ TOUR_API_KEY=발급받은_디코딩_서비스키
 python app.py
 ```
 
-**CLI 실행**
-```bash
-python main.py
-```
+`app.py`는 벡터DB를 생성하지 않으므로, 처음에는 `main.py`를 한 번 실행해 `chroma_db/`를 만든 뒤 사용한다. Docker로 실행하면 이 과정이 자동으로 처리된다.
 
 ### 5.3 Docker로 실행
 
 로컬 Python 환경 없이 Docker만으로 실행할 수 있다. 이미지는 CPU 전용 torch를 사용한다.
 
 ```bash
-cp .env.example .env           # TOUR_API_KEY에 디코딩 서비스키 입력
-docker compose up --build      # http://localhost:7860
+copy .env.example .env         # Windows (macOS/Linux: cp), TOUR_API_KEY 입력
+docker compose up --build      # 브라우저에서 http://localhost:7860 접속
 ```
 
 - 시작 시 `DATA_CITIES`(기본 제주)에 지정된 지역 중 아직 적재되지 않은 지역만 TourAPI에서 수집해 벡터DB에 추가한다. 데이터 적재가 끝난 뒤 LLM을 로드하므로 임베딩과 모델 로딩이 메모리에서 겹치지 않는다.
@@ -169,7 +185,7 @@ docker compose up --build      # http://localhost:7860
 
 프로젝트를 진행하면서 로컬 하드웨어 사양(CPU 환경, 16GB RAM) 안에서 감수할 수밖에 없었던 트레이드오프들이다.
 
-- **데이터 수집 범위 한정**: 전국 데이터를 한 번에 적재하려다 메모리 부족으로 시스템이 다운되는 것을 겪은 뒤, 안정성을 우선해 제주 지역으로 범위를 좁힘. 코드 구조상 `AREA_CODES`에 정의된 지역을 추가하기만 하면 전국 확장이 가능하지만, 이를 실제로 검증하려면 더 넉넉한 메모리/GPU 환경이 필요함
+- **데이터 수집 범위 한정**: 전국 데이터를 한 번에 적재하려다 메모리 부족으로 시스템이 다운되는 것을 겪은 뒤, 안정성을 우선해 기본 범위를 제주 지역으로 좁힘. 이후 Docker 실행 구성에서 데이터 적재와 LLM 로딩 시점을 분리하고, `DATA_CITIES`로 지역을 단계적으로 추가할 수 있도록 개선했으나, 전국 단위 적재의 품질과 소요 시간은 아직 충분히 검증하지 못함
 - **프롬프트 튜닝 미흡**: Worker별 요약 프롬프트("2~3줄로 요약해" 등)가 단순한 수준에 그쳐, 생성되는 일정의 구체성(시간대, 장소별 설명 등)이 기대에 못 미치는 경우가 있었음. `max_new_tokens`을 늘리거나 출력 형식을 더 구체적으로 지시하는 프롬프트 엔지니어링을 시도했으나, CPU 환경에서는 토큰 수를 늘릴수록 응답 시간이 비례해 늘어나 충분히 반복 실험하지 못함
 - **RAG 검색 파라미터(k값) 미세 조정 부족**: 카테고리별 검색 결과 개수(`k=5`)를 늘리면 답변 품질이 개선될 가능성이 있으나, 마찬가지로 CPU 환경에서의 응답 속도 문제로 다양한 값을 비교 실험하기 어려웠음
 - **병렬 처리 포기**: Supervisor-Worker 구조를 설계한 목적 중 하나가 병렬 실행을 통한 응답 속도 개선이었으나, 단일 로컬 모델 인스턴스의 동시성 제약으로 순차 실행으로 전환하면서 이 이점을 살리지 못함
