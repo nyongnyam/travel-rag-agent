@@ -4,7 +4,9 @@ services:
     image: travel-rag-agent
     env_file: .env            # TOUR_API_KEY
     environment:
-      DATA_CITIES: "제주"      # 쉼표로 지역 추가 가능 (예: "제주,부산") — 메모리 주의
+      # 적재할 지역 (쉼표 구분). 추가 후 재시작하면 새 지역만 수집해 덧붙임
+      # 사용 가능: 서울 인천 대전 대구 광주 부산 울산 세종 경기 강원 충북 충남 경북 경남 전북 전남 제주
+      DATA_CITIES: "제주"
     ports:
       - "7860:7860"
     volumes:

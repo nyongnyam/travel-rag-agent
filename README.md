@@ -152,7 +152,8 @@ cp .env.example .env           # TOUR_API_KEY에 디코딩 서비스키 입력
 docker compose up --build      # http://localhost:7860
 ```
 
-- 최초 실행 시 벡터DB가 비어 있으면 TourAPI 수집과 임베딩 적재를 자동으로 수행한다 (`DATA_CITIES`로 지역 지정, 기본 제주).
+- 시작 시 `DATA_CITIES`(기본 제주)에 지정된 지역 중 아직 적재되지 않은 지역만 TourAPI에서 수집해 벡터DB에 추가한다. 데이터 적재가 끝난 뒤 LLM을 로드하므로 임베딩과 모델 로딩이 메모리에서 겹치지 않는다.
+- 검색 시 요청 문장에서 지역명을 인식해 해당 지역 데이터만 조회한다 (예: "부산 2일" → `city=부산`).
 - HuggingFace 모델(bge-m3, Qwen2.5-3B-Instruct)은 `hf-cache` 볼륨에, 벡터DB는 `chroma-data` 볼륨에 저장되어 재시작해도 다시 받지 않는다.
 - Qwen2.5-3B를 float32로 올리므로 Docker에 최소 16GB 메모리를 할당하는 것을 권장한다.
 - CLI로 실행하려면: `docker compose run --rm app python main.py`

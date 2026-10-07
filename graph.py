@@ -3,6 +3,7 @@ from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings, HuggingFacePipeline, ChatHuggingFace
 from langgraph.graph import StateGraph, END, START
 import transformers, torch
+from crawler import AREA_CODES
 
 
 class TravelState(TypedDict):
@@ -31,9 +32,22 @@ llm = ChatHuggingFace(llm=HuggingFacePipeline(pipeline=pipe))
 MAX_CHARS_PER_DOC = 200
 
 
-def rag_search(query: str, category: str, k: int = 3) -> str:
+def detect_city(text: str) -> str | None:
+    """요청 문장에서 지역명을 찾는다 (예: '제주도 3일' -> '제주')."""
+    for name in AREA_CODES:
+        if name in text:
+            return name
+    return None
+
+
+def rag_search(query: str, category: str, city: str | None = None, k: int = 3) -> str:
+    if city:
+        # 여러 지역이 적재된 경우 다른 지역 장소가 섞이지 않도록 지역도 함께 필터링
+        search_filter = {"$and": [{"category": {"$eq": category}}, {"city": {"$eq": city}}]}
+    else:
+        search_filter = {"category": category}
     retriever = vectorstore.as_retriever(
-        search_kwargs={"k": k, "filter": {"category": category}}
+        search_kwargs={"k": k, "filter": search_filter}
     )
     results = retriever.invoke(query)
     if not results:
@@ -51,15 +65,18 @@ def rag_search(query: str, category: str, k: int = 3) -> str:
 # CPU 환경에서 시간이 가장 많이 드는 건 토큰 생성(decode)이므로,
 # LLM 호출을 supervisor 1회로 모아 전체 응답 시간을 줄인다.
 def transport_worker(state: TravelState) -> dict:
-    return {"transport_info": rag_search(state["user_request"], category="관광지")}
+    city = detect_city(state["user_request"])
+    return {"transport_info": rag_search(state["user_request"], category="관광지", city=city)}
 
 
 def stay_worker(state: TravelState) -> dict:
-    return {"stay_info": rag_search(state["user_request"], category="숙박")}
+    city = detect_city(state["user_request"])
+    return {"stay_info": rag_search(state["user_request"], category="숙박", city=city)}
 
 
 def food_worker(state: TravelState) -> dict:
-    return {"food_info": rag_search(state["user_request"], category="음식점")}
+    city = detect_city(state["user_request"])
+    return {"food_info": rag_search(state["user_request"], category="음식점", city=city)}
 
 
 def supervisor_synthesize(state: TravelState) -> dict:
