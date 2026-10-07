@@ -139,6 +139,20 @@ python app.py
 python main.py
 ```
 
+### 5.3 Docker로 실행
+
+로컬 Python 환경 없이 Docker만으로 실행할 수 있다. 이미지는 CPU 전용 torch를 사용한다.
+
+```bash
+cp .env.example .env           # TOUR_API_KEY에 디코딩 서비스키 입력
+docker compose up --build      # http://localhost:7860
+```
+
+- 최초 실행 시 벡터DB가 비어 있으면 TourAPI 수집과 임베딩 적재를 자동으로 수행한다 (`DATA_CITIES`로 지역 지정, 기본 제주).
+- HuggingFace 모델(bge-m3, Qwen2.5-3B-Instruct)은 `hf-cache` 볼륨에, 벡터DB는 `chroma-data` 볼륨에 저장되어 재시작해도 다시 받지 않는다.
+- Qwen2.5-3B를 float32로 올리므로 Docker에 최소 16GB 메모리를 할당하는 것을 권장한다.
+- CLI로 실행하려면: `docker compose run --rm app python main.py`
+
 ## 6. 기술적 의사결정
 
 - **로컬 sLLM 채택 이유**: API 호출 비용 없이 온디바이스에서 완결되는 에이전트 파이프라인을 구성하기 위해 경량 모델(Qwen2.5-3B-Instruct)을 채택

@@ -1,0 +1,18 @@
+services:
+  app:
+    build: .
+    image: travel-rag-agent
+    env_file: .env            # TOUR_API_KEY
+    environment:
+      DATA_CITIES: "제주"      # 쉼표로 지역 추가 가능 (예: "제주,부산") — 메모리 주의
+    ports:
+      - "7860:7860"
+    volumes:
+      - hf-cache:/cache/huggingface   # 모델 캐시 (약 8GB, 최초 1회 다운로드)
+      - chroma-data:/app/chroma_db    # 벡터DB 영속화
+    # Qwen2.5-3B(float32, ~12GB) + bge-m3 로딩 시 메모리 필요. Docker Desktop 메모리 설정 확인
+    restart: unless-stopped
+
+volumes:
+  hf-cache:
+  chroma-data:
